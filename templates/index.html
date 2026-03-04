@@ -1,56 +1,306 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
-<meta charset="UTF-8">
-<title>Mini Task Manager</title>
-<style>
-body { font-family: Arial; margin: 40px; }
-.completed { text-decoration: line-through; color: gray; }
-button { margin-left: 5px; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager Pro</title>
+    <link rel="stylesheet" href="static/main.css">
 </head>
 <body>
-<h1>Mini Task Manager</h1>
-<input id="new-task" placeholder="New task">
-<button onclick="addTask()">Add</button>
-<ul id="task-list"></ul>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Task Manager Pro</h1>
+            <p>Организуйте свои задачи эффективно</p>
+        </div>
 
-<script>
-async function fetchTasks() {
-    const res = await fetch('/tasks');
-    const tasks = await res.json();
-    const list = document.getElementById('task-list');
-    list.innerHTML = '';
-    tasks.forEach(task => {
-        const li = document.createElement('li');
-        li.textContent = task.title;
-        if(task.completed) li.classList.add('completed');
-        li.onclick = async () => { await toggleTask(task.id); fetchTasks(); };
-        const del = document.createElement('button');
-        del.textContent = 'Delete';
-        del.onclick = async (e) => { e.stopPropagation(); await deleteTask(task.id); fetchTasks(); };
-        li.appendChild(del);
-        list.appendChild(li);
-    });
-}
+        <div class="content">
+            <div class="add-task-section">
+                <h3>➕ Добавить новую задачу</h3>
+                <div class="input-group">
+                    <input type="text" id="new-task" class="task-input" placeholder="Что нужно сделать?" autocomplete="off">
+                    <select id="task-priority" class="priority-select">
+                        <option value="high">🔥 Высокий</option>
+                        <option value="medium" selected>⚡ Средний</option>
+                        <option value="low">🌱 Низкий</option>
+                    </select>
+                    <input type="date" id="task-date" class="date-input">
+                </div>
+                <button id="add-button" class="add-button" style="margin-top: 15px; width: 100%;">Добавить задачу</button>
+            </div>
 
-async function addTask() {
-    const input = document.getElementById('new-task');
-    if(!input.value.trim()) return;
-    await fetch('/tasks', { method: 'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title: input.value}) });
-    input.value = '';
-    fetchTasks();
-}
+            <div class="filters-section">
+                <div class="filter-group">
+                    <select id="priority-filter" class="filter-select">
+                        <option value="all">Все приоритеты</option>
+                        <option value="high">🔥 Высокий</option>
+                        <option value="medium">⚡ Средний</option>
+                        <option value="low">🌱 Низкий</option>
+                    </select>
+                    <select id="sort-by" class="filter-select">
+                        <option value="priority">По приоритету</option>
+                        <option value="date">По дате</option>
+                        <option value="title">По названию</option>
+                    </select>
+                </div>
+                <div class="stats" id="task-stats">
+                    <div class="stat-item">Всего: <span class="stat-badge" id="total-count">0</span></div>
+                    <div class="stat-item">Выполнено: <span class="stat-badge" id="completed-count">0</span></div>
+                    <div class="stat-item">Просрочено: <span class="stat-badge" id="overdue-count">0</span></div>
+                </div>
+            </div>
 
-async function toggleTask(id) {
-    await fetch(`/tasks/${id}`, { method: 'PUT' });
-}
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-bar" style="width: 0%"></div>
+            </div>
 
-async function deleteTask(id) {
-    await fetch(`/tasks/${id}`, { method: 'DELETE' });
-}
+            <ul id="task-list" class="task-list"></ul>
+        </div>
 
-fetchTasks();
-</script>
+        <div class="footer">
+            ⚡ Управляйте задачами с удовольствием
+        </div>
+    </div>
+
+    <script>
+        // Глобальные переменные
+        let tasks = [];
+        let currentFilter = 'all';
+        let currentSort = 'priority';
+
+        // Функция сохранения
+        function saveTasks() {
+            localStorage.setItem('tasks', JSON.stringify(tasks));
+        }
+
+        // Функция загрузки
+        function loadTasks() {
+            const saved = localStorage.getItem('tasks');
+            if (saved) {
+                tasks = JSON.parse(saved);
+            } else {
+                // Демо данные
+                const today = new Date();
+                const tomorrow = new Date(today);
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                
+                tasks = [
+                    { id: 1, title: 'Сделать дизайн проекта', completed: false, priority: 'high', dueDate: tomorrow.toISOString().split('T')[0] },
+                    { id: 2, title: 'Написать код', completed: false, priority: 'medium', dueDate: '', createdAt: new Date().toISOString() },
+                    { id: 3, title: 'Провести тестирование', completed: true, priority: 'low', dueDate: '' }
+                ];
+            }
+        }
+
+        // Проверка просрочки
+        function isOverdue(task) {
+            if (!task.dueDate || task.completed) return false;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const due = new Date(task.dueDate);
+            due.setHours(0, 0, 0, 0);
+            return due < today;
+        }
+
+        // Обновление статистики
+        function updateStats() {
+            const total = tasks.length;
+            const completed = tasks.filter(t => t.completed).length;
+            const overdue = tasks.filter(t => !t.completed && isOverdue(t)).length;
+            
+            document.getElementById('total-count').textContent = total;
+            document.getElementById('completed-count').textContent = completed;
+            document.getElementById('overdue-count').textContent = overdue;
+            
+            const progress = total > 0 ? (completed / total) * 100 : 0;
+            document.getElementById('progress-bar').style.width = progress + '%';
+        }
+
+        // Отрисовка задач
+        function renderTasks() {
+            const list = document.getElementById('task-list');
+            if (!list) return;
+
+            // Фильтрация
+            let filtered = tasks;
+            if (currentFilter !== 'all') {
+                filtered = tasks.filter(t => t.priority === currentFilter);
+            }
+
+            // Сортировка
+            const sorted = [...filtered].sort((a, b) => {
+                if (currentSort === 'priority') {
+                    const weight = { high: 3, medium: 2, low: 1 };
+                    return weight[b.priority] - weight[a.priority];
+                } else if (currentSort === 'date') {
+                    if (!a.dueDate) return 1;
+                    if (!b.dueDate) return -1;
+                    return new Date(a.dueDate) - new Date(b.dueDate);
+                } else {
+                    return a.title.localeCompare(b.title);
+                }
+            });
+
+            // Очистка списка
+            list.innerHTML = '';
+
+            if (sorted.length === 0) {
+                list.innerHTML = '<div class="empty-state">✨ Нет задач. Создайте новую задачу!</div>';
+                updateStats();
+                return;
+            }
+
+            // Создание элементов
+            sorted.forEach(task => {
+                const li = document.createElement('li');
+                li.className = `task-item ${task.completed ? 'completed' : ''} ${isOverdue(task) ? 'overdue' : ''}`;
+                
+                // Контент задачи
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'task-content';
+                contentDiv.onclick = () => toggleTask(task.id);
+                
+                const checkbox = document.createElement('div');
+                checkbox.className = 'task-checkbox';
+                
+                const title = document.createElement('span');
+                title.className = 'task-title';
+                title.textContent = task.title;
+                
+                contentDiv.appendChild(checkbox);
+                contentDiv.appendChild(title);
+                
+                // Действия
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'task-actions';
+                
+                const prioritySpan = document.createElement('span');
+                prioritySpan.className = `priority-badge priority-${task.priority}`;
+                const priorityText = task.priority === 'high' ? '🔥 Высокий' : task.priority === 'medium' ? '⚡ Средний' : '🌱 Низкий';
+                prioritySpan.textContent = priorityText;
+                
+                actionsDiv.appendChild(prioritySpan);
+                
+                if (task.dueDate) {
+                    const dateSpan = document.createElement('span');
+                    dateSpan.className = `due-date ${isOverdue(task) && !task.completed ? 'overdue' : ''}`;
+                    const date = new Date(task.dueDate).toLocaleDateString('ru-RU');
+                    dateSpan.innerHTML = `<i>📅</i> ${date}`;
+                    actionsDiv.appendChild(dateSpan);
+                }
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.textContent = '✕';
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (confirm('Удалить задачу?')) {
+                        tasks = tasks.filter(t => t.id !== task.id);
+                        saveTasks();
+                        renderTasks();
+                    }
+                };
+                
+                actionsDiv.appendChild(deleteBtn);
+                
+                li.appendChild(contentDiv);
+                li.appendChild(actionsDiv);
+                list.appendChild(li);
+            });
+
+            updateStats();
+        }
+
+        // Добавление задачи
+        function addTask() {
+            console.log('addTask called'); // Для отладки
+            
+            const input = document.getElementById('new-task');
+            const priority = document.getElementById('task-priority');
+            const dateInput = document.getElementById('task-date');
+            
+            if (!input || !priority) {
+                console.error('Elements not found');
+                return;
+            }
+            
+            const title = input.value.trim();
+            if (!title) {
+                alert('Введите название задачи');
+                return;
+            }
+
+            const newTask = {
+                id: Date.now(),
+                title: title,
+                completed: false,
+                priority: priority.value,
+                dueDate: dateInput.value || null
+            };
+
+            tasks.push(newTask);
+            saveTasks();
+            
+            input.value = '';
+            if (dateInput) dateInput.value = '';
+            
+            renderTasks();
+            
+            console.log('Task added:', newTask);
+        }
+
+        // Переключение статуса
+        function toggleTask(id) {
+            const task = tasks.find(t => t.id === id);
+            if (task) {
+                task.completed = !task.completed;
+                saveTasks();
+                renderTasks();
+            }
+        }
+
+        // Применение фильтров
+        function applyFilters() {
+            currentFilter = document.getElementById('priority-filter').value;
+            currentSort = document.getElementById('sort-by').value;
+            renderTasks();
+        }
+
+        // Инициализация при загрузке страницы
+        window.onload = function() {
+            console.log('Page loaded');
+            
+            // Загружаем задачи
+            loadTasks();
+            
+            // Назначаем обработчики
+            const addBtn = document.getElementById('add-button');
+            if (addBtn) {
+                addBtn.onclick = addTask;
+                console.log('Add button handler set');
+            }
+            
+            const input = document.getElementById('new-task');
+            if (input) {
+                input.onkeypress = function(e) {
+                    if (e.key === 'Enter') {
+                        addTask();
+                    }
+                };
+            }
+            
+            const filterSelect = document.getElementById('priority-filter');
+            if (filterSelect) {
+                filterSelect.onchange = applyFilters;
+            }
+            
+            const sortSelect = document.getElementById('sort-by');
+            if (sortSelect) {
+                sortSelect.onchange = applyFilters;
+            }
+            
+            // Отрисовываем задачи
+            renderTasks();
+        };
+    </script>
 </body>
 </html>
